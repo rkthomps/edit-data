@@ -1,0 +1,74 @@
+"""
+For testing purposes.
+"""
+
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+
+from edit_data.types import (
+    ContentChange,
+    FileChangeHistory,
+    NewConcreteCheckpoint,
+    Edit,
+    Range,
+    Position,
+)
+
+
+def get_linear_file_history(
+    file: Path, contents: str, start_time: datetime, delta_milis: int
+) -> FileChangeHistory:
+    concrete_orig = NewConcreteCheckpoint("", start_time)
+    edits_history: list[Edit] = []
+    cur_time = start_time
+    cur_line = 0
+    cur_col = 0
+    for i, ch in enumerate(contents):
+        cur_time = cur_time + timedelta(milliseconds=delta_milis)
+        ch_range = Range(
+            start=Position(cur_line, cur_col),
+            end=Position(cur_line, cur_col + 1),
+        )
+        edit = Edit(
+            file=str(file),
+            time=cur_time,
+            base_change=concrete_orig,
+            changes=[
+                # A simple change that appends one character at the end
+                ContentChange(
+                    range=ch_range,
+                    text=ch,
+                    rangeOffset=i,
+                    rangeLength=1,
+                )
+            ],
+        )
+        if ch == "\n":
+            cur_line += 1
+            cur_col = 0
+        else:
+            cur_col += 1
+        edits_history.append(edit)
+    return FileChangeHistory(
+        path=file,
+        last_checkpoint=concrete_orig,
+        edits_history=edits_history,
+    )
+
+
+def get_linear_workspace_history(root: Path) -> dict[Path, FileChangeHistory]:
+    workspace_history: dict[Path, FileChangeHistory] = {}
+    for dirpath, _, filenames in os.walk(root):
+        for filename in filenames:
+            file_path = Path(dirpath) / filename
+            with open(file_path, "r", encoding="utf-8") as f:
+                contents = f.read()
+            file_history = get_linear_file_history(
+                file=file_path.relative_to(root),
+                contents=contents,
+                start_time=datetime(2024, 1, 1, 0, 0, 0),
+                delta_milis=100,
+            )
+            workspace_history[file_history.path] = file_history
+    return workspace_history
