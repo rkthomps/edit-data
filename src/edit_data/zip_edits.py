@@ -75,21 +75,39 @@ def build_file_tree(paths: list[Path]) -> FileNode:
     return root
 
 
-def load_zipfile_contents(zip_path: Path) -> dict[Path, str]:
+def is_important_path(path: Path) -> bool:
+    if path == Path(METADATA_NAME):
+        return True
+    if len(path.parts) < 3:
+        return False
+    if path.parts[-2] != EDITS_NAME and path.parts[-2] != CONCRETE_NAME:
+        return False
+    if not is_num(path.parts[-1]):
+        return False
+    return True
+
+
+def load_zipfile_contents_from_file(f: zipfile.ZipFile) -> dict[Path, str]:
+    file_contents: dict[Path, str] = {}
+    for info in f.infolist():
+        if info.is_dir():
+            continue
+        if not is_important_path(Path(info.filename)):
+            continue
+        with f.open(info.filename) as file:
+            content = file.read().decode("utf-8")
+            file_contents[Path(info.filename)] = content
+    return file_contents
+
+
+def load_zipfile_contents_from_path(zip_path: Path) -> dict[Path, str]:
     """
     Load a zipfile from the given path
     """
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip file path {zip_path} does not exist")
     with zipfile.ZipFile(zip_path, "r") as zipped_file:
-        file_contents: dict[Path, str] = {}
-        for info in zipped_file.infolist():
-            if info.is_dir():
-                continue
-            with zipped_file.open(info.filename) as file:
-                content = file.read().decode("utf-8")
-                file_contents[Path(info.filename)] = content
-    return file_contents
+        return load_zipfile_contents_from_file(zipped_file)
 
 
 def is_num(s: str) -> bool:
@@ -98,19 +116,6 @@ def is_num(s: str) -> bool:
         return True
     except ValueError:
         return False
-
-
-def get_important_paths(file_dict: dict[Path, str]) -> set[Path]:
-    important_paths: set[Path] = set()
-    for path in file_dict.keys():
-        if len(path.parts) < 3:
-            continue
-        if path.parts[-2] != EDITS_NAME and path.parts[-2] != CONCRETE_NAME:
-            continue
-        if not is_num(path.parts[-1]):
-            continue
-        important_paths.add(path.parent.parent)
-    return important_paths
 
 
 def load_file_history(
@@ -186,10 +191,9 @@ def get_metadata(
 def load_workspace_history_from_zip_contents(
     zip_contents: dict[Path, str],
 ) -> WorkspaceChangeHistory:
-    important_paths = get_important_paths(zip_contents)
     file_tree = build_file_tree(list(zip_contents.keys()))
     file_history_dict: dict[Path, FileChangeHistory] = {}
-    for file_path in important_paths:
+    for file_path in zip_contents.keys():
         file_history = load_file_history(file_path, zip_contents, file_tree)
         file_history_dict[file_path] = file_history
     metadata = get_metadata(file_tree, zip_contents)
@@ -203,5 +207,5 @@ def load_workspace_history(changes_zip_loc: Path) -> WorkspaceChangeHistory:
     """
     Load e.g. changes.zip into a workspace history mapping
     """
-    zip_contents = load_zipfile_contents(changes_zip_loc)
+    zip_contents = load_zipfile_contents_from_path(changes_zip_loc)
     return load_workspace_history_from_zip_contents(zip_contents)
