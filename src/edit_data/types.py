@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 import os
 import re
@@ -221,24 +221,29 @@ def raw_concrete_checkpoint_from_json(json_data: Any) -> RawConcreteCheckpoint:
             raise ValueError(f"Unknown checkpoint type {attempted_type}")
 
 
-class ChangeMetadata(BaseModel):
+class GitChangeMetadata(BaseModel):
+    type: Literal["git"] = "git"
     remote: str
     commit: str
 
-    def valid_commit(self) -> bool:
-        if not re.fullmatch(r"[0-9a-fA-F]{40}", self.commit):
-            return False
-        return True
 
-    def write_ts_metadata(self, changes_path: Path) -> None:
-        metadata_file = changes_path / "metadata.json"
-        changes_path.mkdir(parents=True, exist_ok=True)
-        with open(metadata_file, "w", encoding="utf-8") as f:
-            f.write(self.model_dump_json(indent=2))
+class LocalChangeMetadata(BaseModel):
+    type: Literal["local"] = "local"
+    local_id: str
+
+
+ChangeMetadata = GitChangeMetadata | LocalChangeMetadata
+
+
+def write_ts_metadata(metadata: ChangeMetadata, changes_path: Path) -> None:
+    metadata_file = changes_path / "metadata.json"
+    changes_path.mkdir(parents=True, exist_ok=True)
+    with open(metadata_file, "w", encoding="utf-8") as f:
+        f.write(metadata.model_dump_json(indent=2))
 
 
 class WorkspaceChangeHistory(BaseModel):
-    metadata: Optional[ChangeMetadata]
+    metadata: ChangeMetadata
     files: list[FileChangeHistory]
 
     def get_dict(self) -> dict[Path, FileChangeHistory]:
@@ -247,8 +252,7 @@ class WorkspaceChangeHistory(BaseModel):
     def write_ts_workspace_history(self, changes_path: Path) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_dir_path = Path(tmp_dir)
-            if self.metadata is not None:
-                self.metadata.write_ts_metadata(tmp_dir_path)
+            write_ts_metadata(self.metadata, tmp_dir_path)
             for f in self.files:
                 f.write_ts_file_history(tmp_dir_path)
 

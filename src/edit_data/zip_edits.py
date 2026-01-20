@@ -9,6 +9,8 @@ import tempfile
 import zipfile
 
 import json
+from pydantic import TypeAdapter
+
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
@@ -84,6 +86,26 @@ def is_important_path(path: Path) -> bool:
     if not is_num(path.parts[-1]):
         return False
     return True
+
+
+def get_file_real_path(important_path: Path) -> Optional[Path]:
+    """
+    A path like "a/b/edits-history/12345" maps to "a/b"
+    metadata.json returns None
+    """
+    if important_path == Path(METADATA_NAME):
+        return None
+    assert is_important_path(important_path)
+    return Path(*important_path.parts[:-2])
+
+
+def get_real_paths(important_paths: list[Path]) -> set[Path]:
+    real_paths: set[Path] = set()
+    for p in important_paths:
+        real_path = get_file_real_path(p)
+        if real_path is not None:
+            real_paths.add(real_path)
+    return real_paths
 
 
 def load_zipfile_contents_from_file(f: zipfile.ZipFile) -> dict[Path, str]:
@@ -177,22 +199,23 @@ def load_file_history(
     return FileChangeHistory(file, edits, last_checkpoint)
 
 
-def get_metadata(
-    file_tree: FileNode, file_dict: dict[Path, str]
-) -> Optional[ChangeMetadata]:
-    if METADATA_NAME in file_tree.children:
-        metadata_contents = file_dict[Path(METADATA_NAME)]
-        metadata = ChangeMetadata.model_validate_json(metadata_contents)
-        return metadata
-    return None
+def get_metadata(file_tree: FileNode, file_dict: dict[Path, str]) -> ChangeMetadata:
+    if METADATA_NAME not in file_tree.children:
+        raise FileNotFoundError("Metadata file not found in zip contents")
+
+    metadata_contents = file_dict[Path(METADATA_NAME)]
+    ta: TypeAdapter[ChangeMetadata] = TypeAdapter(ChangeMetadata)
+    metadata = ta.validate_json(metadata_contents)
+    return metadata
 
 
 def load_workspace_history_from_zip_contents(
     zip_contents: dict[Path, str],
 ) -> WorkspaceChangeHistory:
+    file_tree_paths = get_real_paths(list(zip_contents.keys()))
     file_tree = build_file_tree(list(zip_contents.keys()))
     file_history_dict: dict[Path, FileChangeHistory] = {}
-    for file_path in zip_contents.keys():
+    for file_path in file_tree_paths:
         file_history = load_file_history(file_path, zip_contents, file_tree)
         file_history_dict[file_path] = file_history
     metadata = get_metadata(file_tree, zip_contents)

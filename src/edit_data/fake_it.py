@@ -64,4 +64,7 @@ def get_linear_workspace_history(root: Path) -> WorkspaceChangeHistory:
                 delta_milis=100,
             )
             workspace_history[file_history.path] = file_history
-    return WorkspaceChangeHistory(metadata=None, files=list(workspace_history.values()))
+    metadata = LocalChangeMetadata(local_id=f"test-linear-workspace##{root}")
+    return WorkspaceChangeHistory(
+        metadata=metadata, files=list(workspace_history.values())
+    )
