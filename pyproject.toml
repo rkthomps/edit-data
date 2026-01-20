@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "dataclasses-json>=0.6.7",
+    "pydantic>=2.12.5",
     "pytest>=9.0.1",
 ]
 
@@ -18,3 +18,8 @@ edit-data = "edit_data:main"
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipdb>=0.13.13",
+]

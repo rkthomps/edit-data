@@ -1,0 +1,5 @@
+ZIP_CHANGES_NAME = "changes.zip"
+CHANGES_NAME = ".changes"
+CONCRETE_NAME = "concrete-history"
+EDITS_NAME = "edits-history"
+METADATA_NAME = "metadata.json"

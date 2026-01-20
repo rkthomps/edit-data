@@ -6,159 +6,11 @@ from typing import Any, Optional
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
-from dataclasses_json import DataClassJsonMixin
 
+from pydantic import BaseModel
 
-ZIP_CHANGES_NAME = "changes.zip"
-CHANGES_NAME = ".changes"
-CONCRETE_NAME = "concrete-history"
-EDITS_NAME = "edits-history"
-
-
-def datetime_from_milis(ms: int) -> datetime:
-    return datetime.fromtimestamp(ms / 1000)
-
-
-@dataclass(frozen=True, eq=True)
-class Position:
-    line: int
-    character: int
-
-    @property
-    def params(self) -> dict[str, int]:
-        return {
-            "line": self.line,
-            "character": self.character,
-        }
-
-    @classmethod
-    def from_response(cls, data: Any) -> "Position":
-        return cls(
-            line=data["line"],
-            character=data["character"],
-        )
-
-
-@dataclass(frozen=True)
-class Range(DataClassJsonMixin):
-    start: Position
-    end: Position
-
-    def immediately_before(self, other: "Range") -> bool:
-        if self.end.line == other.start.line:
-            return self.end.character == other.start.character
-        if self.end.line + 1 == other.start.line:
-            return other.start.character == 0
-        return False
-
-    @property
-    def params(self) -> dict[str, Any]:
-        return {
-            "start": self.start.params,
-            "end": self.end.params,
-        }
-
-    @classmethod
-    def from_response(cls, data: Any) -> "Range":
-        return cls(
-            start=Position.from_response(data["start"]),
-            end=Position.from_response(data["end"]),
-        )
-
-
-@dataclass(frozen=True)
-class NewConcreteCheckpoint:
-    contents: str
-    mtime: datetime
-
-    @classmethod
-    def from_ts_dict(cls, obj: Any) -> NewConcreteCheckpoint:
-        return cls(obj["contents"], datetime_from_milis(int(obj["mtime"])))
-
-
-@dataclass(frozen=True)
-class SameConcreteCheckpoint:
-    prev: ConcreteCheckpoint
-    mtime: datetime
-
-
-ConcreteCheckpoint = NewConcreteCheckpoint | SameConcreteCheckpoint
-
-
-@dataclass(frozen=True)
-class ContentChange:
-    range: Range
-    text: str
-    rangeOffset: int
-    rangeLength: int
-
-    @classmethod
-    def from_ts_dict(cls, obj: Any):
-        return cls(
-            Range.from_response(obj["range"]),
-            obj["text"],
-            obj["rangeOffset"],
-            obj["rangeLength"],
-        )
-
-
-@dataclass(frozen=True)
-class Edit:
-    file: str
-    time: datetime
-    base_change: ConcreteCheckpoint
-    changes: list[ContentChange]
-
-
-@dataclass(frozen=True)
-class RawEdit:
-    file: str
-    time: datetime
-    baseTime: datetime
-    changes: list[ContentChange]
-
-    @classmethod
-    def from_ts_dict(cls, obj: Any):
-        return cls(
-            obj["file"],
-            datetime_from_milis(int(obj["time"])),
-            datetime_from_milis(int(obj["baseTime"])),
-            [ContentChange.from_ts_dict(c) for c in obj["changes"]],
-        )
-
-
-@dataclass(frozen=True)
-class FileChangeHistory:
-    path: Path
-    edits_history: list[Edit]
-    last_checkpoint: ConcreteCheckpoint
-
-
-@dataclass(frozen=True)
-class RawSameConcreteCheckpoint:
-    prevMtime: datetime
-    mtime: datetime
-
-    @classmethod
-    def from_ts_dict(cls, obj: Any):
-        return cls(
-            datetime_from_milis(int(obj["prevMtime"])),
-            datetime_from_milis(int(obj["mtime"])),
-        )
-
-
-RawConcreteCheckpoint = NewConcreteCheckpoint | RawSameConcreteCheckpoint
-
-
-def raw_concrete_checkpoint_from_json(json_data: Any) -> RawConcreteCheckpoint:
-    attempted_type = json_data["type"]
-    match attempted_type:
-        case "same":
-            return RawSameConcreteCheckpoint.from_ts_dict(json_data)
-        case "new":
-            return NewConcreteCheckpoint.from_ts_dict(json_data)
-        case _:
-            raise ValueError(f"Unknown checkpoint type {attempted_type}")
+from edit_data.common import *
+from edit_data.types import *
 
 
 def load_file_history(file: Path, workspace: Path) -> FileChangeHistory:
@@ -185,7 +37,7 @@ def load_file_history(file: Path, workspace: Path) -> FileChangeHistory:
             case RawSameConcreteCheckpoint(prevMtime, mtime):
                 assert prevMtime in concrete_checkpoints
                 same_checkpoint = SameConcreteCheckpoint(
-                    concrete_checkpoints[prevMtime], mtime
+                    prev=concrete_checkpoints[prevMtime], mtime=mtime
                 )
                 concrete_checkpoints[mtime] = same_checkpoint
                 last_checkpoint = same_checkpoint
@@ -207,7 +59,12 @@ def load_file_history(file: Path, workspace: Path) -> FileChangeHistory:
     edits: list[Edit] = []
     for raw_edit in raw_edits:
         base_change = concrete_checkpoints[raw_edit.baseTime]
-        edit = Edit(raw_edit.file, raw_edit.time, base_change, raw_edit.changes)
+        edit = Edit(
+            file=raw_edit.file,
+            time=raw_edit.time,
+            base_change=base_change,
+            changes=raw_edit.changes,
+        )
         edits.append(edit)
 
     edits.sort(key=lambda x: x.time)
@@ -259,8 +116,8 @@ def get_last_new_concrete_checkpoint(
     match checkpoint:
         case NewConcreteCheckpoint():
             return checkpoint
-        case SameConcreteCheckpoint(prev, _):
-            return get_last_new_concrete_checkpoint(prev)
+        case SameConcreteCheckpoint():
+            return get_last_new_concrete_checkpoint(checkpoint.prev)
 
 
 def apply_change(base: str, change: ContentChange) -> str:

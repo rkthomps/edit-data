@@ -6,20 +6,13 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from edit_data.types import (
-    ContentChange,
-    FileChangeHistory,
-    NewConcreteCheckpoint,
-    Edit,
-    Range,
-    Position,
-)
+from edit_data.types import *
 
 
 def get_linear_file_history(
     file: Path, contents: str, start_time: datetime, delta_milis: int
 ) -> FileChangeHistory:
-    concrete_orig = NewConcreteCheckpoint("", start_time)
+    concrete_orig = NewConcreteCheckpoint(contents="", mtime=start_time)
     edits_history: list[Edit] = []
     cur_time = start_time
     cur_line = 0
@@ -27,8 +20,8 @@ def get_linear_file_history(
     for i, ch in enumerate(contents):
         cur_time = cur_time + timedelta(milliseconds=delta_milis)
         ch_range = Range(
-            start=Position(cur_line, cur_col),
-            end=Position(cur_line, cur_col + 1),
+            start=Position(line=cur_line, character=cur_col),
+            end=Position(line=cur_line, character=cur_col + 1),
         )
         edit = Edit(
             file=str(file),
@@ -57,7 +50,7 @@ def get_linear_file_history(
     )
 
 
-def get_linear_workspace_history(root: Path) -> dict[Path, FileChangeHistory]:
+def get_linear_workspace_history(root: Path) -> WorkspaceChangeHistory:
     workspace_history: dict[Path, FileChangeHistory] = {}
     for dirpath, _, filenames in os.walk(root):
         for filename in filenames:
@@ -71,4 +64,4 @@ def get_linear_workspace_history(root: Path) -> dict[Path, FileChangeHistory]:
                 delta_milis=100,
             )
             workspace_history[file_history.path] = file_history
-    return workspace_history
+    return WorkspaceChangeHistory(metadata=None, files=list(workspace_history.values()))

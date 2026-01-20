@@ -4,6 +4,9 @@ Does the things from `edits.py` but in memory with a Zipfile
 
 from typing import Optional
 
+import os
+import tempfile
+import ipdb
 import zipfile
 
 import json
@@ -12,11 +15,7 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from edit_data.types import *
-
-ZIP_CHANGES_NAME = "changes.zip"
-CHANGES_NAME = ".changes"
-CONCRETE_NAME = "concrete-history"
-EDITS_NAME = "edits-history"
+from edit_data.common import *
 
 
 @dataclass
@@ -104,7 +103,7 @@ def is_num(s: str) -> bool:
 def get_important_paths(file_dict: dict[Path, str]) -> set[Path]:
     important_paths: set[Path] = set()
     for path in file_dict.keys():
-        if 3 < len(path.parts):
+        if len(path.parts) < 3:
             continue
         if path.parts[-2] != EDITS_NAME and path.parts[-2] != CONCRETE_NAME:
             continue
@@ -140,7 +139,7 @@ def load_file_history(
             case RawSameConcreteCheckpoint(prevMtime, mtime):
                 assert prevMtime in concrete_checkpoints
                 same_checkpoint = SameConcreteCheckpoint(
-                    concrete_checkpoints[prevMtime], mtime
+                    prev=concrete_checkpoints[prevMtime], mtime=mtime
                 )
                 concrete_checkpoints[mtime] = same_checkpoint
                 last_checkpoint = same_checkpoint
@@ -162,115 +161,41 @@ def load_file_history(
     edits: list[Edit] = []
     for raw_edit in raw_edits:
         base_change = concrete_checkpoints[raw_edit.baseTime]
-        edit = Edit(raw_edit.file, raw_edit.time, base_change, raw_edit.changes)
+        edit = Edit(
+            file=raw_edit.file,
+            time=raw_edit.time,
+            base_change=base_change,
+            changes=raw_edit.changes,
+        )
         edits.append(edit)
 
     edits.sort(key=lambda x: x.time)
     return FileChangeHistory(file, edits, last_checkpoint)
 
 
-def load_workspace_history(changes_zip_loc: Path) -> dict[Path, FileChangeHistory]:
+def get_metadata(
+    file_tree: FileNode, file_dict: dict[Path, str]
+) -> Optional[ChangeMetadata]:
+    if METADATA_NAME in file_tree.children:
+        metadata_contents = file_dict[Path(METADATA_NAME)]
+        metadata = ChangeMetadata.model_validate_json(metadata_contents)
+        return metadata
+    return None
+
+
+def load_workspace_history(changes_zip_loc: Path) -> WorkspaceChangeHistory:
     """
     Load e.g. changes.zip into a workspace history mapping
     """
     zip_contents = load_zipfile_contents(changes_zip_loc)
     important_paths = get_important_paths(zip_contents)
-    print(f"Found {important_paths} important paths.")
     file_tree = build_file_tree(list(zip_contents.keys()))
-    print(file_tree)
-    workspace_history: dict[Path, FileChangeHistory] = {}
+    file_history_dict: dict[Path, FileChangeHistory] = {}
     for file_path in important_paths:
         file_history = load_file_history(file_path, zip_contents, file_tree)
-        workspace_history[file_path] = file_history
+        file_history_dict[file_path] = file_history
+    metadata = get_metadata(file_tree, zip_contents)
+    workspace_history = WorkspaceChangeHistory(
+        metadata=metadata, files=list(file_history_dict.values())
+    )
     return workspace_history
-
-
-def get_last_new_concrete_checkpoint(
-    checkpoint: ConcreteCheckpoint,
-) -> NewConcreteCheckpoint:
-    match checkpoint:
-        case NewConcreteCheckpoint():
-            return checkpoint
-        case SameConcreteCheckpoint(prev, _):
-            return get_last_new_concrete_checkpoint(prev)
-
-
-def apply_change(base: str, change: ContentChange) -> str:
-    return (
-        base[: change.rangeOffset]
-        + change.text
-        + base[(change.rangeOffset + change.rangeLength) :]
-    )
-
-
-def apply_edit(base: str, edit: Edit) -> str:
-    curbase = base
-    for change in edit.changes:
-        curbase = apply_change(curbase, change)
-    return curbase
-
-
-def get_file_contents(base: str, edits: list[Edit]) -> str:
-    cur_base = base
-    for edit in edits:
-        cur_base = apply_edit(cur_base, edit)
-    return cur_base
-
-
-def get_version_at_time(
-    file: Path, workspace_history: dict[Path, FileChangeHistory], time: datetime
-) -> str:
-    assert file in workspace_history, f"Have no history for {file}."
-    file_history = workspace_history[file]
-
-    # Find the edit that is closest to the time
-    edit_sequence: list[Edit] = []
-    for edit in file_history.edits_history:
-        if edit.time > time:
-            break
-        edit_sequence.append(edit)
-
-    if 0 == len(edit_sequence):
-        return get_last_new_concrete_checkpoint(file_history.last_checkpoint).contents
-
-    # Get the chain of edits and checkpoint up to the last edit
-    last_edit = edit_sequence[-1]
-    reversed_edits = edit_sequence[::-1]
-    last_edit_chain: list[Edit] = []
-    for edit in reversed_edits:
-        if edit.base_change != last_edit.base_change:
-            break
-        last_edit_chain.append(edit)
-    last_edit_chain.reverse()
-
-    return get_file_contents(
-        get_last_new_concrete_checkpoint(last_edit.base_change).contents,
-        last_edit_chain,
-    )
-
-
-def get_version_at_edit(
-    file: Path, workspace_history: dict[Path, FileChangeHistory], edit_idx: int
-) -> dict[Path, str]:
-    assert file in workspace_history, f"Have no history for {file}."
-    file_history = workspace_history[file]
-    assert edit_idx < len(
-        file_history.edits_history
-    ), f"Edit index {edit_idx} out of range."
-
-    target_edit = file_history.edits_history[edit_idx]
-    versions: dict[Path, str] = {}
-    for f in workspace_history:
-        versions[f] = get_version_at_time(f, workspace_history, target_edit.time)
-    return versions
-
-
-def total_num_edits(workspace_history: dict[Path, FileChangeHistory]) -> int:
-    return sum(len(fh.edits_history) for fh in workspace_history.values())
-
-
-if __name__ == "__main__":
-    wsh = load_workspace_history(Path("tests/changes.zip"))
-    print(wsh.keys())
-    version = get_version_at_edit(Path("Expressions.lean"), wsh, 10)
-    print(version[Path("Expressions.lean")])

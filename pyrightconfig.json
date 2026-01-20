@@ -1,0 +1,16 @@
+{
+    "typeCheckingMode": "strict",
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning",
+    "reportUnusedClass": "warning",
+    "reportUnusedFunction": "warning",
+    "reportUnusedExpression": "warning",
+    "reportUnnecessaryTypeIgnoreComment": "warning",
+    "reportUnnecessaryCast": "warning",
+    "reportUnnecessaryComparison": "warning",
+    "include": [
+        "src"
+    ],
+    "venvPath": ".",
+    "venv": ".venv"
+}
