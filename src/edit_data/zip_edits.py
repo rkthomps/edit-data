@@ -183,11 +183,9 @@ def get_metadata(
     return None
 
 
-def load_workspace_history(changes_zip_loc: Path) -> WorkspaceChangeHistory:
-    """
-    Load e.g. changes.zip into a workspace history mapping
-    """
-    zip_contents = load_zipfile_contents(changes_zip_loc)
+def load_workspace_history_from_zip_contents(
+    zip_contents: dict[Path, str],
+) -> WorkspaceChangeHistory:
     important_paths = get_important_paths(zip_contents)
     file_tree = build_file_tree(list(zip_contents.keys()))
     file_history_dict: dict[Path, FileChangeHistory] = {}
@@ -199,3 +197,11 @@ def load_workspace_history(changes_zip_loc: Path) -> WorkspaceChangeHistory:
         metadata=metadata, files=list(file_history_dict.values())
     )
     return workspace_history
+
+
+def load_workspace_history(changes_zip_loc: Path) -> WorkspaceChangeHistory:
+    """
+    Load e.g. changes.zip into a workspace history mapping
+    """
+    zip_contents = load_zipfile_contents(changes_zip_loc)
+    return load_workspace_history_from_zip_contents(zip_contents)
