@@ -22,6 +22,8 @@ def test_edit_serialization():
 
         logger.info(f"Linear history num files: {len(linear_history.files)}")
         logger.info(f"Reloaded history num files: {len(reloaded_history.files)}")
+        assert linear_history.metadata == reloaded_history.metadata
+        assert len(linear_history.files) == len(reloaded_history.files)
         assert linear_history == reloaded_history
 
 

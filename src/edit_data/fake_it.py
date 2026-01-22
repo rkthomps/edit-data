@@ -14,6 +14,7 @@ def get_local_state() -> LocalChangeMetadata:
     return LocalChangeMetadata(
         hostname=socket.gethostname(),
         os_username=os.getlogin(),
+        workspace_name="test-workspace",
     )
 
 
@@ -54,6 +55,7 @@ def get_linear_file_history(
     return FileChangeHistory(
         path=file,
         edits_history=edits_history,
+        last_checkpoint=concrete_orig,
     )
 
 
@@ -72,6 +74,7 @@ def get_linear_workspace_history(root: Path) -> WorkspaceChangeHistory:
             )
             workspace_history[file_history.path] = file_history
     metadata = get_local_state()
+
     return WorkspaceChangeHistory(
         metadata=metadata, files=list(workspace_history.values())
     )

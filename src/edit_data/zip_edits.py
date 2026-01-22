@@ -196,25 +196,28 @@ def load_file_history(
 
     # Establish pointers in memory
     concrete_checkpoints: list[ConcreteCheckpoint] = []
+    last_checkpoint: Optional[ConcreteCheckpoint] = None
     for raw_checkpoint in raw_checkpoints:
         match raw_checkpoint:
             case NewConcreteCheckpoint():
                 concrete_checkpoints.append(raw_checkpoint)
+                last_checkpoint = raw_checkpoint
             case RawSameConcreteCheckpoint(prevMtime, mtime):
                 assert prevMtime in concrete_checkpoints
                 same_checkpoint = SameConcreteCheckpoint(
                     prev=concrete_checkpoints[prevMtime], mtime=mtime
                 )
+                last_checkpoint = same_checkpoint
                 concrete_checkpoints.append(same_checkpoint)
 
-    assert len(concrete_checkpoints) > 0
+    assert last_checkpoint is not None
 
     # Sort checkpoints by time
     concrete_checkpoints.sort(key=lambda x: x.mtime)
 
     # Load Edits
     if EDITS_NAME not in file_node.children:
-        return FileChangeHistory(file, [])
+        return FileChangeHistory(file, [], last_checkpoint)
     edits_node = file_node.get_dir(Path(EDITS_NAME))
 
     raw_edits: list[RawEdit] = []
@@ -228,7 +231,7 @@ def load_file_history(
     raw_edits.sort(key=lambda x: x.time)
 
     edits = raw_edits_to_edits(raw_edits, concrete_checkpoints)
-    return FileChangeHistory(file, edits)
+    return FileChangeHistory(file, edits, last_checkpoint)
 
 
 def get_metadata(file_tree: FileNode, file_dict: dict[Path, str]) -> ChangeMetadata:
@@ -250,9 +253,8 @@ def load_workspace_history_from_zip_contents(
         file_history = load_file_history(file_path, zip_contents, file_tree)
         file_history_dict[file_path] = file_history
     metadata = get_metadata(file_tree, zip_contents)
-    workspace_history = WorkspaceChangeHistory(
-        metadata=metadata, files=list(file_history_dict.values())
-    )
+    sorted_files = sorted(file_history_dict.values(), key=lambda fh: fh.path)
+    workspace_history = WorkspaceChangeHistory(metadata=metadata, files=sorted_files)
     return workspace_history
 
 

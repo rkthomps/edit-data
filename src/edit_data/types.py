@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from edit_data.common import *
 
@@ -158,6 +158,7 @@ class RawEdit:
 class FileChangeHistory:
     path: Path
     edits_history: list[Edit]
+    last_checkpoint: ConcreteCheckpoint
 
     def __gather_concrete_checkpoints(self) -> dict[datetime, ConcreteCheckpoint]:
         concrete_checkpoints: dict[datetime, ConcreteCheckpoint] = {}
@@ -222,12 +223,14 @@ class LocalChangeMetadata(BaseModel):
     type: Literal["local"] = "local"
     hostname: str
     os_username: str
+    workspace_name: str
 
     def to_ts_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "hostname": self.hostname,
             "osUsername": self.os_username,
+            "workspaceName": self.workspace_name,
         }
 
     @classmethod
@@ -235,6 +238,7 @@ class LocalChangeMetadata(BaseModel):
         return cls(
             hostname=obj["hostname"],
             os_username=obj["osUsername"],
+            workspace_name=obj["workspaceName"],
         )
 
 
@@ -263,6 +267,7 @@ class GitChangeMetadata(BaseModel):
     type: Literal["git"] = "git"
     hostname: str
     os_username: str
+    workspace_name: str
     head: str
     last_tag: Optional[str]
     remotes: list[Remote]
@@ -272,6 +277,7 @@ class GitChangeMetadata(BaseModel):
             "type": self.type,
             "hostname": self.hostname,
             "osUsername": self.os_username,
+            "workspaceName": self.workspace_name,
             "head": self.head,
             "lastTag": self.last_tag,
             "remotes": [r.to_ts_dict() for r in self.remotes],
@@ -282,6 +288,7 @@ class GitChangeMetadata(BaseModel):
         return cls(
             hostname=obj["hostname"],
             os_username=obj["osUsername"],
+            workspace_name=obj["workspaceName"],
             head=obj["head"],
             last_tag=obj.get("lastTag"),
             remotes=[Remote.from_ts_dict(r) for r in obj["remotes"]],
@@ -313,6 +320,14 @@ def write_ts_metadata(metadata: ChangeMetadata, changes_path: Path) -> None:
 class WorkspaceChangeHistory(BaseModel):
     metadata: ChangeMetadata
     files: list[FileChangeHistory]
+
+    @model_validator(mode="after")
+    def files_must_be_sorted(self) -> "WorkspaceChangeHistory":
+        assert all(
+            self.files[i].path < self.files[i + 1].path
+            for i in range(len(self.files) - 1)
+        ), "Files in WorkspaceChangeHistory must be sorted by path"
+        return self
 
     def get_dict(self) -> dict[Path, FileChangeHistory]:
         return {f.path: f for f in self.files}
