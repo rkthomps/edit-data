@@ -75,6 +75,5 @@ def get_linear_workspace_history(root: Path) -> WorkspaceChangeHistory:
             workspace_history[file_history.path] = file_history
     metadata = get_local_state()
 
-    return WorkspaceChangeHistory(
-        metadata=metadata, files=list(workspace_history.values())
-    )
+    sorted_files = sorted(list(workspace_history.values()), key=lambda fh: fh.path)
+    return WorkspaceChangeHistory(metadata=metadata, files=sorted_files)
