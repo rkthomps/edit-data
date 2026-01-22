@@ -139,6 +139,46 @@ def is_num(s: str) -> bool:
         return False
 
 
+def is_sorted(xs: list[float]) -> bool:
+    return all(xs[i] <= xs[i + 1] for i in range(len(xs) - 1))
+
+
+def raw_edits_to_edits(
+    raw_edits: list[RawEdit],
+    concrete_checkpoints: list[ConcreteCheckpoint],
+) -> list[Edit]:
+    """
+    Produces a list of edits.
+    Raw edits are sorted by time.
+    Concrete checkpoints are sorted by mtime.
+    """
+    assert is_sorted([e.time.timestamp() for e in raw_edits])
+    assert is_sorted([c.mtime.timestamp() for c in concrete_checkpoints])
+
+    checkpoint_ptr = 0
+
+    edits: list[Edit] = []
+    for raw_edit in raw_edits:
+        while checkpoint_ptr < len(concrete_checkpoints):
+            checkpoint = concrete_checkpoints[checkpoint_ptr]
+            if raw_edit.time < checkpoint.mtime:
+                break
+            checkpoint_ptr += 1
+        assert checkpoint_ptr > 0  # We always get a concrete checkpoint before the edit
+        base_change = concrete_checkpoints[checkpoint_ptr - 1]
+        assert base_change.mtime <= raw_edit.time
+        edit = Edit(
+            file=raw_edit.file,
+            time=raw_edit.time,
+            base_change=base_change,
+            changes=raw_edit.changes,
+        )
+        edits.append(edit)
+
+    assert is_sorted([e.time.timestamp() for e in edits])
+    return edits
+
+
 def load_file_history(
     file: Path, file_dict: dict[Path, str], file_tree: FileNode
 ) -> FileChangeHistory:
@@ -155,25 +195,26 @@ def load_file_history(
     raw_checkpoints.sort(key=lambda x: x.mtime)
 
     # Establish pointers in memory
-    last_checkpoint: Optional[ConcreteCheckpoint] = None
-    concrete_checkpoints: dict[datetime, ConcreteCheckpoint] = {}
+    concrete_checkpoints: list[ConcreteCheckpoint] = []
     for raw_checkpoint in raw_checkpoints:
         match raw_checkpoint:
             case NewConcreteCheckpoint():
-                concrete_checkpoints[raw_checkpoint.mtime] = raw_checkpoint
-                last_checkpoint = raw_checkpoint
+                concrete_checkpoints.append(raw_checkpoint)
             case RawSameConcreteCheckpoint(prevMtime, mtime):
                 assert prevMtime in concrete_checkpoints
                 same_checkpoint = SameConcreteCheckpoint(
                     prev=concrete_checkpoints[prevMtime], mtime=mtime
                 )
-                concrete_checkpoints[mtime] = same_checkpoint
-                last_checkpoint = same_checkpoint
-    assert last_checkpoint is not None
+                concrete_checkpoints.append(same_checkpoint)
+
+    assert len(concrete_checkpoints) > 0
+
+    # Sort checkpoints by time
+    concrete_checkpoints.sort(key=lambda x: x.mtime)
 
     # Load Edits
     if EDITS_NAME not in file_node.children:
-        return FileChangeHistory(file, [], last_checkpoint)
+        return FileChangeHistory(file, [])
     edits_node = file_node.get_dir(Path(EDITS_NAME))
 
     raw_edits: list[RawEdit] = []
@@ -183,20 +224,11 @@ def load_file_history(
         raw_edit = RawEdit.from_ts_dict(data)
         raw_edits.append(raw_edit)
 
-    # Create edits with concrete checkpoints
-    edits: list[Edit] = []
-    for raw_edit in raw_edits:
-        base_change = concrete_checkpoints[raw_edit.baseTime]
-        edit = Edit(
-            file=raw_edit.file,
-            time=raw_edit.time,
-            base_change=base_change,
-            changes=raw_edit.changes,
-        )
-        edits.append(edit)
+    # Sort edits by time
+    raw_edits.sort(key=lambda x: x.time)
 
-    edits.sort(key=lambda x: x.time)
-    return FileChangeHistory(file, edits, last_checkpoint)
+    edits = raw_edits_to_edits(raw_edits, concrete_checkpoints)
+    return FileChangeHistory(file, edits)
 
 
 def get_metadata(file_tree: FileNode, file_dict: dict[Path, str]) -> ChangeMetadata:
@@ -204,8 +236,7 @@ def get_metadata(file_tree: FileNode, file_dict: dict[Path, str]) -> ChangeMetad
         raise FileNotFoundError("Metadata file not found in zip contents")
 
     metadata_contents = file_dict[Path(METADATA_NAME)]
-    ta: TypeAdapter[ChangeMetadata] = TypeAdapter(ChangeMetadata)
-    metadata = ta.validate_json(metadata_contents)
+    metadata = metadata_from_ts_dict(json.loads(metadata_contents))
     return metadata
 
 

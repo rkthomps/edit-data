@@ -143,7 +143,6 @@ class Edit(BaseModel):
 class RawEdit:
     file: str
     time: datetime
-    baseTime: datetime
     changes: list[ContentChange]
 
     @classmethod
@@ -151,7 +150,6 @@ class RawEdit:
         return cls(
             obj["file"],
             datetime_from_milis(int(obj["time"])),
-            datetime_from_milis(int(obj["baseTime"])),
             [ContentChange.from_ts_dict(c) for c in obj["changes"]],
         )
 
@@ -160,7 +158,6 @@ class RawEdit:
 class FileChangeHistory:
     path: Path
     edits_history: list[Edit]
-    last_checkpoint: ConcreteCheckpoint
 
     def __gather_concrete_checkpoints(self) -> dict[datetime, ConcreteCheckpoint]:
         concrete_checkpoints: dict[datetime, ConcreteCheckpoint] = {}
@@ -221,25 +218,96 @@ def raw_concrete_checkpoint_from_json(json_data: Any) -> RawConcreteCheckpoint:
             raise ValueError(f"Unknown checkpoint type {attempted_type}")
 
 
-class GitChangeMetadata(BaseModel):
-    type: Literal["git"] = "git"
-    remote: str
-    commit: str
-
-
 class LocalChangeMetadata(BaseModel):
     type: Literal["local"] = "local"
-    local_id: str
+    hostname: str
+    os_username: str
+
+    def to_ts_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "hostname": self.hostname,
+            "osUsername": self.os_username,
+        }
+
+    @classmethod
+    def from_ts_dict(cls, obj: Any) -> "LocalChangeMetadata":
+        return cls(
+            hostname=obj["hostname"],
+            os_username=obj["osUsername"],
+        )
+
+
+class Remote(BaseModel):
+    name: str
+    fetch_url: Optional[str]
+    push_url: Optional[str]
+
+    def to_ts_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "fetchUrl": self.fetch_url,
+            "pushUrl": self.push_url,
+        }
+
+    @classmethod
+    def from_ts_dict(cls, obj: Any) -> "Remote":
+        return cls(
+            name=obj["name"],
+            fetch_url=obj.get("fetchUrl"),
+            push_url=obj.get("pushUrl"),
+        )
+
+
+class GitChangeMetadata(BaseModel):
+    type: Literal["git"] = "git"
+    hostname: str
+    os_username: str
+    head: str
+    last_tag: Optional[str]
+    remotes: list[Remote]
+
+    def to_ts_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "hostname": self.hostname,
+            "osUsername": self.os_username,
+            "head": self.head,
+            "lastTag": self.last_tag,
+            "remotes": [r.to_ts_dict() for r in self.remotes],
+        }
+
+    @classmethod
+    def from_ts_dict(cls, obj: Any) -> "GitChangeMetadata":
+        return cls(
+            hostname=obj["hostname"],
+            os_username=obj["osUsername"],
+            head=obj["head"],
+            last_tag=obj.get("lastTag"),
+            remotes=[Remote.from_ts_dict(r) for r in obj["remotes"]],
+        )
 
 
 ChangeMetadata = GitChangeMetadata | LocalChangeMetadata
+
+
+def metadata_from_ts_dict(obj: Any) -> ChangeMetadata:
+    attempted_type = obj["type"]
+    match attempted_type:
+        case "git":
+            return GitChangeMetadata.from_ts_dict(obj)
+        case "local":
+            return LocalChangeMetadata.from_ts_dict(obj)
+        case _:
+            raise ValueError(f"Unknown metadata type {attempted_type}")
 
 
 def write_ts_metadata(metadata: ChangeMetadata, changes_path: Path) -> None:
     metadata_file = changes_path / "metadata.json"
     changes_path.mkdir(parents=True, exist_ok=True)
     with open(metadata_file, "w", encoding="utf-8") as f:
-        f.write(metadata.model_dump_json(indent=2))
+        metadata_dict = metadata.to_ts_dict()
+        f.write(json.dumps(metadata_dict, indent=2))
 
 
 class WorkspaceChangeHistory(BaseModel):

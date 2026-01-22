@@ -3,10 +3,18 @@ For testing purposes.
 """
 
 import os
+import socket
 from pathlib import Path
 from datetime import datetime, timedelta
 
 from edit_data.types import *
+
+
+def get_local_state() -> LocalChangeMetadata:
+    return LocalChangeMetadata(
+        hostname=socket.gethostname(),
+        os_username=os.getlogin(),
+    )
 
 
 def get_linear_file_history(
@@ -45,7 +53,6 @@ def get_linear_file_history(
         edits_history.append(edit)
     return FileChangeHistory(
         path=file,
-        last_checkpoint=concrete_orig,
         edits_history=edits_history,
     )
 
@@ -64,7 +71,7 @@ def get_linear_workspace_history(root: Path) -> WorkspaceChangeHistory:
                 delta_milis=100,
             )
             workspace_history[file_history.path] = file_history
-    metadata = LocalChangeMetadata(local_id=f"test-linear-workspace##{root}")
+    metadata = get_local_state()
     return WorkspaceChangeHistory(
         metadata=metadata, files=list(workspace_history.values())
     )
