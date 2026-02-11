@@ -15,6 +15,7 @@ def get_local_state() -> LocalChangeMetadata:
         hostname=socket.gethostname(),
         os_username=os.getlogin(),
         workspace_name="test-workspace",
+        consent_name="Linear Test Participant",
     )
 
 

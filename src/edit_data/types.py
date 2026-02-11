@@ -224,6 +224,7 @@ class LocalChangeMetadata(BaseModel):
     hostname: str
     os_username: str
     workspace_name: str
+    consent_name: str
 
     def to_ts_dict(self) -> dict[str, Any]:
         return {
@@ -231,6 +232,7 @@ class LocalChangeMetadata(BaseModel):
             "hostname": self.hostname,
             "osUsername": self.os_username,
             "workspaceName": self.workspace_name,
+            "consentName": self.consent_name,
         }
 
     @classmethod
@@ -239,6 +241,7 @@ class LocalChangeMetadata(BaseModel):
             hostname=obj["hostname"],
             os_username=obj["osUsername"],
             workspace_name=obj["workspaceName"],
+            consent_name=obj["consentName"],
         )
 
 
@@ -271,6 +274,7 @@ class GitChangeMetadata(BaseModel):
     head: str
     last_tag: Optional[str]
     remotes: list[Remote]
+    consent_name: str
 
     def to_ts_dict(self) -> dict[str, Any]:
         return {
@@ -281,6 +285,7 @@ class GitChangeMetadata(BaseModel):
             "head": self.head,
             "lastTag": self.last_tag,
             "remotes": [r.to_ts_dict() for r in self.remotes],
+            "consentName": self.consent_name,
         }
 
     @classmethod
@@ -292,6 +297,7 @@ class GitChangeMetadata(BaseModel):
             head=obj["head"],
             last_tag=obj.get("lastTag"),
             remotes=[Remote.from_ts_dict(r) for r in obj["remotes"]],
+            consent_name=obj["consentName"],
         )
 
 
